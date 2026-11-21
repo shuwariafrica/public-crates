@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Targets: bash 5.3 on ubuntu-26.04 and a developer's Linux machine, with git, jq, cargo and
-# python3 3.11 or later. The cases of plan.sh, project.sh, gate-configuration.py, toolchain-file.py,
-# rust-version.py, git-sources.py, own-licence.sh, package.sh, packaged.sh and semver-checks.sh's
-# index paths,
-# each over a fixture built in a temporary directory, which it removes. Prints one line per case and
-# exits 1 when any fails.
-#   checks/test.sh
+# python3 3.11 or later; given `windows`, also Git Bash on windows-2025-vs2026 with git, jq and
+# cargo, where it runs the cases of the scripts a Windows job runs, and those alone. The cases of
+# plan.sh, project.sh, gate-configuration.py, toolchain-file.py, rust-version.py, git-sources.py,
+# own-licence.sh, package.sh, packaged.sh and semver-checks.sh, each over a fixture built in a
+# temporary directory, which it removes. Prints one line per case and exits 1 when any fails.
+#   checks/test.sh [windows]
 set -euo pipefail
 shopt -s inherit_errexit
 unset CDPATH
@@ -410,24 +410,120 @@ semver_cases() {
   expect "semver-checks: a longer crate's index path" 0 "se/rd/serde_json" index_path Serde_json
 }
 
+# native_path <dir>: the PATH on which a Windows job's native programs run. Git Bash's own where this
+# is Git Bash; elsewhere, a stand-in jq in <dir> comes first and ends each line with CRLF unless given
+# -b, as jq's manual says a Windows build does.
+native_path() {
+  local dir=$1 jq found
+  if command -v cygpath >/dev/null 2>&1; then
+    printf '%s\n' "${PATH}"
+    return
+  fi
+  jq=$(command -v jq)
+  mkdir -p "${dir}"
+  cat >"${dir}/jq" <<STUB
+#!/usr/bin/env bash
+set -euo pipefail
+for arg in "\$@"; do
+  [[ "\${arg}" != -b ]] || exec ${jq@Q} "\$@"
+done
+${jq@Q} "\$@" | sed 's/\$/\r/'
+STUB
+  chmod +x "${dir}/jq"
+  found=$(PATH="${dir}:${PATH}" type -P jq)
+  [[ "${found}" == "${dir}/jq" ]]
+  printf '%s\n' "${dir}:${PATH}"
+}
+
+# line_of <line> <command...>: the command's output; fails unless the command succeeds and a line of
+# its output is <line> exactly.
+line_of() {
+  local line=$1 output
+  shift
+  output=$("$@") || return
+  printf '%s\n' "${output}"
+  grep -qxF -- "${line}" <<<"${output}"
+}
+
+# The scripts a Windows job runs over native_path's jq: one licence across crates that carry one,
+# each crate on crates.io compared, and the licence handed to the steps as its own value.
+native_cases() {
+  local dir native one found
+  dir=$(mktemp -d -p "${WORK}")
+  native=$(native_path "${dir}/native")
+  mkdir -p "${dir}/licence/a/src" "${dir}/licence/b/src" "${dir}/semver/bin"
+  printf '[workspace]\nmembers = ["a", "b"]\nresolver = "3"\n\n[workspace.package]\nlicense = "Apache-2.0"\n' >"${dir}/licence/Cargo.toml"
+  printf '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2024"\nlicense.workspace = true\n' >"${dir}/licence/a/Cargo.toml"
+  printf '[package]\nname = "b"\nversion = "0.1.0"\nedition = "2024"\nlicense.workspace = true\n' >"${dir}/licence/b/Cargo.toml"
+  : >"${dir}/licence/a/src/lib.rs"
+  : >"${dir}/licence/b/src/lib.rs"
+  printf '                           Version 2.0, January 2004\n' >"${dir}/licence/LICENSE"
+  expect "own-licence: crates of one licence, from a native jq, carry one" 0 "own-licence: Apache-2.0, its text in LICENSE" \
+    run_in "${dir}/licence" env PATH="${native}" bash "${GATE}/checks/own-licence.sh" Apache-2.0
+  # crates.io's index holds both crates; cargo semver-checks records what it is asked.
+  cat >"${dir}/semver/bin/cargo" <<'STUB'
+#!/usr/bin/env bash
+case "$1" in
+  metadata) printf '{"workspace_members":["a","b"],"packages":[{"id":"a","name":"crate-a","publish":null},{"id":"b","name":"crate-b","publish":null}]}\n' ;;
+  semver-checks) printf 'cargo %s\n' "$*" >>"${RECORD:?}" ;;
+  *) exit 2 ;;
+esac
+STUB
+  cat >"${dir}/semver/bin/curl" <<'STUB'
+#!/usr/bin/env bash
+case "${!#}" in
+  https://index.crates.io/cr/at/crate-a | https://index.crates.io/cr/at/crate-b) printf 200 ;;
+  *) printf 404 ;;
+esac
+STUB
+  chmod +x "${dir}/semver/bin/cargo" "${dir}/semver/bin/curl"
+  found=$(PATH="${dir}/semver/bin:${native}" type -P cargo)
+  [[ "${found}" == "${dir}/semver/bin/cargo" ]]
+  found=$(PATH="${dir}/semver/bin:${native}" type -P curl)
+  [[ "${found}" == "${dir}/semver/bin/curl" ]]
+  : >"${dir}/semver/record"
+  expect "semver-checks: each crate on crates.io compared, by names from a native jq" 0 "+ cargo semver-checks --package crate-a --package crate-b" \
+    run_in "${dir}/semver" env PATH="${dir}/semver/bin:${native}" RECORD="${dir}/semver/record" GITHUB_STEP_SUMMARY="${dir}/semver/summary" \
+    bash "${GATE}/checks/semver-checks.sh"
+  one='{"projects": {"crate-a": {"repository": "shuwariafrica/crate-a", "repository_id": 1001, "crates": ["crate-a"],
+    "crates_io_owners": ["arashi01"], "tag_signers": ["20BBB4E4F90F3CE6F9BBFCDB78A12350D373DF6B"], "signing_key": null,
+    "first_version": "0.1.0", "platforms": ["linux-x64", "windows-x64"], "license": "MPL-2.0"}}}'
+  expect "project: the licence goes to the steps as its own line, from a native jq" 0 "licence=MPL-2.0" \
+    line_of licence=MPL-2.0 project "${one}" PATH="${native}"
+}
+
 main() {
-  local self
+  local self only=${1:-}
+  [[ -z "${only}" || "${only}" == windows ]] || {
+    printf 'usage: checks/test.sh [windows]\n' >&2
+    exit 2
+  }
   self=$(realpath -- "${BASH_SOURCE[0]}")
   GATE=$(cd -- "$(dirname -- "${self}")/.." && pwd)
   WORK=$(mktemp -d)
   trap '((BASHPID == '"${BASHPID}"')) && rm -rf -- "${WORK}"' EXIT
   export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
   export GIT_AUTHOR_NAME=checks GIT_AUTHOR_EMAIL=checks@invalid GIT_COMMITTER_NAME=checks GIT_COMMITTER_EMAIL=checks@invalid
-  gate_configuration_cases
-  toolchain_cases
-  plan_cases
-  project_cases
-  licence_cases
-  version_cases
-  git_source_cases
-  package_cases
-  packaged_cases
-  semver_cases
+  if [[ "${only}" == windows ]]; then
+    project_cases
+    licence_cases
+    package_cases
+    packaged_cases
+    semver_cases
+    native_cases
+  else
+    gate_configuration_cases
+    toolchain_cases
+    plan_cases
+    project_cases
+    licence_cases
+    version_cases
+    git_source_cases
+    package_cases
+    packaged_cases
+    semver_cases
+    native_cases
+  fi
   if ((failed > 0)); then
     printf '%s case(s) failed\n' "${failed}"
     exit 1

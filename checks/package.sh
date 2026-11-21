@@ -15,7 +15,8 @@ main() {
     printf 'usage: package.sh <projects.json> <repository>\n' >&2
     exit 2
   }
-  awaited=$(jq -r --arg repository "${repository}" \
+  # -b: a Windows jq ends its line with CRLF otherwise.
+  awaited=$(jq -b -r --arg repository "${repository}" \
     '[.projects[] | select(.repository == $repository) | .git_sources // [] | .[] | "\(.awaits.crate) \(.awaits.version)"] | join(", ")' \
     "${projects}")
   if [[ -n "${awaited}" ]]; then

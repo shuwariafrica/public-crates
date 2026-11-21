@@ -22,8 +22,9 @@ heading() {
 main() {
   local expected=${1:-} metadata licences distinct root licence text
   metadata=$(cargo metadata --no-deps --format-version 1)
-  root=$(jq -r '.workspace_root' <<<"${metadata}")
-  licences=$(jq -r '.workspace_members as $members | [.packages[] | select(.id as $id | $members | index($id))
+  # -b: a Windows jq ends each line with CRLF otherwise, and the CR stays in the value it reads.
+  root=$(jq -b -r '.workspace_root' <<<"${metadata}")
+  licences=$(jq -b -r '.workspace_members as $members | [.packages[] | select(.id as $id | $members | index($id))
     | "\(.name)\t\(.license // "none")"] | .[]' <<<"${metadata}")
   distinct=$(cut -f2 <<<"${licences}" | sort -u | wc -l)
   if [[ "${distinct}" != 1 ]]; then

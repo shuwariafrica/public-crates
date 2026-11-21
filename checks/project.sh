@@ -25,19 +25,20 @@ main() {
   }
   : "${REPOSITORY:?}" "${REPOSITORY_ID:?}" "${SHA:?}" "${PLATFORM:?}" "${RUNNER_OS:?}" "${RUNNER_ARCH:?}" "${GITHUB_OUTPUT:?}"
 
-  entries=$(jq -c --arg repository "${REPOSITORY}" \
+  # -b: a Windows jq ends each line with CRLF otherwise, and the CR stays in the value it reads.
+  entries=$(jq -b -c --arg repository "${REPOSITORY}" \
     '[.projects | to_entries[] | select(.value.repository == $repository)]' "${gate}/projects.json")
-  count=$(jq 'length' <<<"${entries}")
+  count=$(jq -b 'length' <<<"${entries}")
   [[ "${count}" == 1 ]] || refuse "${REPOSITORY} is not one project of projects.json (${count} match)"
-  jq -e --arg repository "${REPOSITORY}" '.[0].key == ($repository | split("/") | .[1])' <<<"${entries}" >/dev/null ||
+  jq -b -e --arg repository "${REPOSITORY}" '.[0].key == ($repository | split("/") | .[1])' <<<"${entries}" >/dev/null ||
     refuse "projects.json keys ${REPOSITORY} by another name than its own"
-  jq -e '.[0].value.repository_id != null' <<<"${entries}" >/dev/null ||
+  jq -b -e '.[0].value.repository_id != null' <<<"${entries}" >/dev/null ||
     refuse "projects.json's repository_id for ${REPOSITORY} is null: it is set once the repository exists"
-  jq -e --argjson id "${REPOSITORY_ID}" '.[0].value.repository_id == $id' <<<"${entries}" >/dev/null ||
+  jq -b -e --argjson id "${REPOSITORY_ID}" '.[0].value.repository_id == $id' <<<"${entries}" >/dev/null ||
     refuse "${REPOSITORY} is repository ${REPOSITORY_ID}, which projects.json does not name"
-  jq -e --arg platform "${PLATFORM}" '.[0].value.platforms | index($platform) != null' <<<"${entries}" >/dev/null ||
+  jq -b -e --arg platform "${PLATFORM}" '.[0].value.platforms | index($platform) != null' <<<"${entries}" >/dev/null ||
     refuse "${PLATFORM} is not one of ${REPOSITORY}'s platforms"
-  runner=$(jq -r --arg platform "${PLATFORM}" '.[$platform].runner // empty' "${gate}/platforms.json")
+  runner=$(jq -b -r --arg platform "${PLATFORM}" '.[$platform].runner // empty' "${gate}/platforms.json")
   [[ -n "${runner}" ]] || refuse "platforms.json has no platform ${PLATFORM}"
   # The platform's name is its system and architecture, as the runner names them.
   case ${PLATFORM} in
@@ -54,7 +55,7 @@ main() {
 
   {
     printf 'repository=%s\n' "${REPOSITORY}"
-    jq -r '"licence=\(.[0].value.license)"' <<<"${entries}"
+    jq -b -r '"licence=\(.[0].value.license)"' <<<"${entries}"
   } >>"${GITHUB_OUTPUT}"
   printf 'project: %s at %s, on %s (%s)\n' "${REPOSITORY}" "${SHA}" "${PLATFORM}" "${runner}" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
 }

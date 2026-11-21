@@ -89,3 +89,17 @@ jobs:
         run: python3 -I checks/declarations.py
       - name: The checks' own cases
         run: checks/test.sh
+
+  # This repository's own pull requests on Windows: the cases of the scripts a Windows job runs, in
+  # Git Bash over Windows' own programs, on the image windows-x64 runs.
+  checks-windows:
+    name: checks windows
+    if: github.repository == 'shuwariafrica/public-crates'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: The checks' own cases of the scripts a Windows job runs
+        run: bash checks/test.sh windows
