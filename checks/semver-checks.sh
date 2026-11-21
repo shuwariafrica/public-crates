@@ -38,7 +38,8 @@ main() {
   local summary=${GITHUB_STEP_SUMMARY:-/dev/null} metadata names name state
   local -a crates=() args=()
   metadata=$(cargo metadata --no-deps --locked --format-version 1)
-  names=$(jq -r '.workspace_members as $members | .packages[]
+  # -b: a Windows jq ends each line with CRLF otherwise, and the CR stays in the value it reads.
+  names=$(jq -b -r '.workspace_members as $members | .packages[]
     | select(.id as $id | $members | index($id))
     | select(.publish == null or (.publish | index("crates-io")))
     | .name' <<<"${metadata}")
