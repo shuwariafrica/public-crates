@@ -80,9 +80,9 @@ in the checks.
 | `.github/actions/mise` | mise at a pinned release and digest, installing from `mise.lock` with no cache |
 | `.github/workflows/actions.lock` | Every action the workflows run, at a commit, which GitHub enforces at run time |
 | `projects.json`, `projects.schema.json` | Each project: its repository and id, crates, tag signers, signing key, first version, platforms, licence and the git sources its lock may take |
-| `keys/` | Each tag signer's certificate, `<fingerprint>.asc`, which the infrastructure catalogue writes |
-| `signing-keys/` | Each project's signing certificate, `<repository>.asc`, which the infrastructure catalogue writes |
-| `gate-commit` | The commit of this repository the organisation's rulesets and every project's release run the checks at, which the infrastructure catalogue writes |
+| `keys/` | Each tag signer's certificate, `<fingerprint>.asc`, which a project's release verifies its tag with |
+| `signing-keys/` | Each project's signing certificate, `<repository>.asc`, which a user's check of a release fetches and the infrastructure catalogue holds equal to its own |
+| `gate-commit` | The commit of this repository the organisation's rulesets and every project's release run the checks at, which the infrastructure catalogue holds equal to its stage |
 | `platforms.json` | Each platform's runner |
 | `mise.toml`, `mise.lock` | The tools the checks and this repository's own checks run |
 | `checks/` | The scripts the jobs run, and their cases (`checks/test.sh`) |
@@ -105,6 +105,9 @@ in the checks.
    `[workspace.lints]` tables, which each member takes with `rust-version.workspace = true`,
    `license.workspace = true` and `[lints] workspace = true`. Its `.gitignore`, where it excludes
    dot-named paths, names `.cargo/` back, and where it excludes Markdown, the three documents.
+   Its own `README.md` states the signing key's fingerprint and points to `SECURITY.md`: crates.io
+   and docs.rs publish a crate's README, so the fingerprint a user compares the certificate with is
+   stated away from GitHub, which serves both the certificate and `SECURITY.md`.
 3. `projects.json` gains its entry, keyed by its repository's name, by a pull request here, its
    `crates_io_owners` the organisation's owners who hold a crates.io login, as the infrastructure
    catalogue lists them, and its `signing_key` null until the project's key is made, which every
@@ -117,8 +120,8 @@ request fails.
 
 `main` takes pull requests alone, on this repository's own `checks` job. A change to
 `checks.yml`, `.github/actions/checks`, `checks/`, `mise.lock` or `projects.json` reaches the
-projects only once the infrastructure catalogue names the new commit in `gate-commit`, and each
-project's `release.yml` names it beside. A tool is raised in `mise.toml`, then locked for
+projects only once the infrastructure catalogue stages the new commit, `gate-commit` names it, and
+each project's `release.yml` names it beside. A tool is raised in `mise.toml`, then locked for
 every platform:
 
 ```
