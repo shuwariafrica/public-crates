@@ -1,0 +1,142 @@
+name: checks
+description: >-
+  The checks of a public Rust project, on one platform, from this repository at the action's own
+  commit: checks.yml runs it on each pull request and a project's release.yml on its tag's commit,
+  so a contributor and a release run the same commands. The project, its id, its platforms and its
+  licence are projects.json's and platforms.json's here, never the project's tree. A release passes
+  `packaged`, crate-package's files, and each crate is then built unpacked as well. No cache.
+inputs:
+  project:
+    description: The checkout of the run's commit, relative to the workspace.
+    required: true
+  platform:
+    description: The platform this job runs on, a key of platforms.json and one of the project's.
+    required: true
+  packaged:
+    description: A release's crate-package files; empty outside a release.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    # This action's own commit of public-crates, where the scripts, projects.json and the tools'
+    # lock are; native to the runner for mise, and as bash reads it for the scripts.
+    - name: The checks' files
+      id: gate
+      shell: bash
+      run: |
+        set -euo pipefail
+        root=$(cd -- "${GITHUB_ACTION_PATH}/../../.." && pwd)
+        native=${root}
+        if command -v cygpath >/dev/null 2>&1; then
+          native=$(cygpath -w "${root}")
+        fi
+        printf 'root=%s\nnative=%s\n' "${root}" "${native}" >>"${GITHUB_OUTPUT}"
+    - name: The project and its platform, from projects.json at the checks' commit
+      id: project
+      shell: bash
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+        PROJECT: ${{ inputs.project }}
+        PLATFORM: ${{ inputs.platform }}
+        REPOSITORY: ${{ github.repository }}
+        REPOSITORY_ID: ${{ github.repository_id }}
+        SHA: ${{ github.sha }}
+      run: bash "${GATE}/checks/project.sh" "${GATE}" "${GITHUB_WORKSPACE}/${PROJECT}"
+    - name: The tree names one exact release, in rust-toolchain.toml alone
+      if: runner.os == 'Linux'
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+      run: python3 -I "${GATE}/checks/toolchain-file.py" .
+    - name: Every git source Cargo.lock takes is listed, at a revision on its branch
+      if: runner.os == 'Linux'
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+        REPOSITORY: ${{ steps.project.outputs.repository }}
+      run: python3 -I "${GATE}/checks/git-sources.py" . "${GATE}/projects.json" "${REPOSITORY}" "${RUNNER_TEMP}/git-sources"
+    - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      env:
+        MISE_TRUSTED_CONFIG_PATHS: ${{ steps.gate.outputs.native }}
+      with:
+        version: 2026.11.10
+        sha256: ${{ runner.os == 'Windows' && (runner.arch == 'ARM64' && '60b9518958e796a5bf57e782135b845318c4dc47d21a6c7e4628b6a4c55cecfc' || 'a448e986baedc177173b5f63c81343269eef6fef8e3e916b6151580a80e115aa') || (runner.arch == 'ARM64' && '86ef275d541c5243cd20b1c0fcd16810e5f3601113d8db09278d0608617a3833' || 'b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9') }}
+        cache: false
+        working_directory: ${{ steps.gate.outputs.native }}
+        install_args: cargo-deny github:obi1kenobi/cargo-semver-checks
+        add_shims_to_path: false
+    - name: The toolchain rust-toolchain.toml names
+      id: toolchain
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      run: |
+        rustup toolchain install --no-self-update
+        rustc --version
+    - name: Every publishable crate's rust-version is that release
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' && runner.os == 'Linux' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+      run: python3 -I "${GATE}/checks/rust-version.py" .
+    - name: The project's own licence is Apache-2.0 or MPL-2.0, its text in LICENSE
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+        LICENCE: ${{ steps.project.outputs.licence }}
+      run: bash "${GATE}/checks/own-licence.sh" "${LICENCE}"
+    - name: cargo fmt --all --check
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      run: cargo fmt --all --check
+    - name: cargo clippy --workspace --all-targets --locked -- -D warnings
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
+    - name: cargo test --workspace --locked
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      run: cargo test --workspace --locked
+    - name: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        RUSTDOCFLAGS: -D warnings
+      run: cargo doc --workspace --no-deps --locked
+    - name: cargo package --workspace --locked
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+        REPOSITORY: ${{ steps.project.outputs.repository }}
+      run: bash "${GATE}/checks/package.sh" "${GATE}/projects.json" "${REPOSITORY}"
+    - name: cargo deny check
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      run: cargo deny check
+    - name: cargo semver-checks
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+      run: bash "${GATE}/checks/semver-checks.sh"
+    - name: Each packaged crate, built unpacked
+      if: ${{ !cancelled() && inputs.packaged != '' && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+        PACKAGED: ${{ inputs.packaged }}
+      run: bash "${GATE}/checks/packaged.sh" "${PACKAGED}"

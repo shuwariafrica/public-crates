@@ -1,0 +1,10 @@
+ignores:
+  - rule: concurrency-limits
+    file: .github/workflows/checks.yml
+    reason: GitHub runs a ruleset's required workflow only without cancel-in-progress (troubleshooting rules, "Concurrency"), so each push of a pull request keeps its own run.
+  - rule: concurrency-limits
+    file: .github/workflows/gate-configuration.yml
+    reason: GitHub runs a ruleset's required workflow only without cancel-in-progress (troubleshooting rules, "Concurrency"), so each push of a pull request keeps its own run.
+  - rule: dependabot-cooldown
+    file: template/.github/dependabot.yml
+    reason: A project's rust-toolchain update is raised the day a Rust release appears, since a toolchain below the current release is itself debt; its cargo update keeps cargo's own seven days.

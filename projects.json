@@ -1,0 +1,57 @@
+{
+  "$schema": "./projects.schema.json",
+  "projects": {
+    "meta-business-messaging": {
+      "repository": "shuwariafrica/meta-business-messaging",
+      "repository_id": 1465538876,
+      "crates": [
+        "meta-business-messaging"
+      ],
+      "crates_io_owners": [
+        "arashi01"
+      ],
+      "tag_signers": [
+        "20BBB4E4F90F3CE6F9BBFCDB78A12350D373DF6B"
+      ],
+      "signing_key": null,
+      "first_version": "0.1.0",
+      "platforms": [
+        "linux-x64"
+      ],
+      "license": "Apache-2.0",
+      "git_sources": []
+    },
+    "pamba": {
+      "repository": "shuwariafrica/pamba",
+      "repository_id": 1186348264,
+      "crates": [
+        "pamba",
+        "pamba-windows",
+        "pamba-windows-build"
+      ],
+      "crates_io_owners": [
+        "arashi01"
+      ],
+      "tag_signers": [
+        "20BBB4E4F90F3CE6F9BBFCDB78A12350D373DF6B"
+      ],
+      "signing_key": null,
+      "first_version": "0.4.0",
+      "platforms": [
+        "linux-x64",
+        "windows-x64"
+      ],
+      "license": "Apache-2.0",
+      "git_sources": [
+        {
+          "repository": "https://github.com/microsoft/windows-rs",
+          "branch": "master",
+          "awaits": {
+            "crate": "windows-reactor",
+            "version": "0.101.0"
+          }
+        }
+      ]
+    }
+  }
+}

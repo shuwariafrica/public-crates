@@ -1,0 +1,18 @@
+# The tools the checks run beside cargo, at the versions a developer's machine and every job alike
+# install with `mise install --locked`. A project's job installs the two cargo subcommands alone;
+# the linters serve this repository's own `checks` job.
+[tools]
+cargo-deny = "0.22.0"
+jactionlint = "2.6.0"
+zizmor = "1.32.0"
+jsonschema = "17.3.3"
+shellcheck = "0.11.0"
+shfmt = "3.14.1"
+
+[tools."github:obi1kenobi/cargo-semver-checks"]
+version = "0.51.0"
+
+# The release ships no Windows arm64 build. Windows on arm64 runs the x64 one under emulation, as
+# the aqua registry has cargo-deny do.
+[tools."github:obi1kenobi/cargo-semver-checks".platforms]
+windows-arm64 = { asset_pattern = "cargo-semver-checks-x86_64-pc-windows-msvc.zip" }

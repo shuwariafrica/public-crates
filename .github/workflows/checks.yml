@@ -1,0 +1,91 @@
+name: checks
+
+# Every public crate's pull requests run this by the organisation's ruleset, which ignores any
+# filter on the trigger. Never pull_request_target: a fork's code runs here, so the run holds
+# nothing worth taking. Each platform's job runs .github/actions/checks at this workflow's own
+# commit, which a project's release.yml also runs at gate-commit on its tag's commit; the tools,
+# projects.json and platforms.json are this repository's at that commit, never the pull request's.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: plan
+    if: github.repository != 'shuwariafrica/public-crates'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.project.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: shuwariafrica/public-crates
+          ref: ${{ job.workflow_sha }}
+          path: gate
+          persist-credentials: false
+      - name: The project's platforms, from projects.json at the checks' commit
+        id: project
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          SHA: ${{ github.sha }}
+          WORKFLOW_REF: ${{ job.workflow_ref }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: gate/checks/plan.sh gate
+
+  check:
+    name: ${{ matrix.platform }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: project
+          persist-credentials: false
+      - uses: $/.github/actions/checks
+        with:
+          project: project
+          platform: ${{ matrix.platform }}
+
+  # This repository's own pull requests.
+  checks:
+    name: checks
+    if: github.repository == 'shuwariafrica/public-crates'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/mise
+        with:
+          working-directory: .
+      # The checks' own files, and the release.yml a project takes from the template.
+      - name: Workflows
+        run: |
+          jactionlint .github/workflows/checks.yml .github/workflows/gate-configuration.yml .github/actions/mise/action.yml .github/actions/checks/action.yml template/.github/workflows/release.yml .github/dependabot.yml
+          zizmor --offline .github/workflows/checks.yml .github/workflows/gate-configuration.yml .github/actions/mise .github/actions/checks template/.github/workflows/release.yml .github/dependabot.yml
+      - name: Scripts
+        run: |
+          shellcheck checks/*.sh
+          shfmt -d checks/*.sh
+      - name: projects.json against its schema
+        run: jsonschema validate projects.schema.json projects.json
+      - name: The platforms, the schema and the lock agree
+        run: python3 -I checks/declarations.py
+      - name: The checks' own cases
+        run: checks/test.sh

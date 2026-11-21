@@ -1,0 +1,39 @@
+name: gate-configuration
+
+# Every public crate's pull requests run this by its own organisation ruleset, whose one bypass is an
+# organisation owner's merge of the pull request: the rule judges a required workflow's whole run, so
+# only a workflow of its own can be bypassed while checks.yml still must pass. It reads the pull
+# request's merge commit against its first parent; its script and its list are this repository's at
+# the workflow's own commit.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gate-configuration:
+    name: gate-configuration
+    if: github.repository != 'shuwariafrica/public-crates'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      # The pull request's merge commit, whose first parent is the base it lands on.
+      - uses: actions/checkout@v7.0.1
+        with:
+          path: project
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: shuwariafrica/public-crates
+          ref: ${{ job.workflow_sha }}
+          path: gate
+          persist-credentials: false
+      - name: The files that set what the checks check are unchanged
+        working-directory: project
+        run: python3 -I ../gate/checks/gate-configuration.py HEAD^1 HEAD

@@ -1,0 +1,19 @@
+{
+  "files": [
+    "(^|/)\\.cargo/config(\\.toml)?$",
+    "(^|/)deny\\.toml$",
+    "(^|/)\\.?clippy\\.toml$",
+    "(^|/)\\.?rustfmt\\.toml$",
+    "(^|/)rust-toolchain(\\.toml)?$",
+    "^\\.github/"
+  ],
+  "manifest_tables": [
+    [
+      "lints"
+    ],
+    [
+      "workspace",
+      "lints"
+    ]
+  ]
+}

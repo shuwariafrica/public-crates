@@ -1,0 +1,36 @@
+# The workspace's shared lines. Each member takes them with `rust-version.workspace = true` and
+# `[lints] workspace = true`.
+[workspace.package]
+edition = "2024"
+# The toolchain rust-toolchain.toml names; raised with it.
+rust-version = "1.100.0"
+# Apache-2.0, or MPL-2.0 where interoperability with the GPL family is foreseen, chosen per
+# project; LICENSE at the root holds that licence's text, and the checks hold the two together.
+license = "Apache-2.0"
+
+[workspace.lints.rust]
+future_incompatible = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
+unreachable_pub = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+elided_lifetimes_in_paths = "deny"
+trivial_casts = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+# A transitive duplicate is the dependency graph's choice, read with `cargo tree -d` when a
+# dependency is added.
+multiple_crate_versions = "allow"
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+exit = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[workspace.lints.cargo]
+unused_dependencies = "deny"

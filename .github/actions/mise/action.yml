@@ -1,0 +1,26 @@
+name: mise
+description: mise at its pinned release, its binary checked against the digest recorded for the runner, installing tools from mise.lock in a checkout of this repository, with no cache and no shims.
+inputs:
+  working-directory:
+    description: The checkout of this repository whose mise.toml and mise.lock are installed.
+    required: true
+  tools:
+    description: The tools to install, separated by spaces; every tool of mise.toml when empty.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    # The digests are of the mise binaries in v2026.11.10's Linux and Windows archives, whose own
+    # digests match the release's SHASUMS256.txt, checked against its minisign signature. No
+    # shims: a shim would read the project's own mise configuration in the project's checkout.
+    - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      env:
+        MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}/${{ inputs.working-directory }}
+      with:
+        version: 2026.11.10
+        sha256: ${{ runner.os == 'Windows' && (runner.arch == 'ARM64' && '60b9518958e796a5bf57e782135b845318c4dc47d21a6c7e4628b6a4c55cecfc' || 'a448e986baedc177173b5f63c81343269eef6fef8e3e916b6151580a80e115aa') || (runner.arch == 'ARM64' && '86ef275d541c5243cd20b1c0fcd16810e5f3601113d8db09278d0608617a3833' || 'b603a4f48563fc379a794d9ea2cf9f709ed276c9141068604cb0c59fa3e674a9') }}
+        cache: false
+        working_directory: ${{ inputs.working-directory }}
+        install_args: ${{ inputs.tools }}
+        add_shims_to_path: false

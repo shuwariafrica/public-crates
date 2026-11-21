@@ -1,0 +1,6 @@
+{
+  "linux-x64": { "runner": "ubuntu-26.04" },
+  "linux-arm64": { "runner": "ubuntu-26.04-arm" },
+  "windows-x64": { "runner": "windows-2025-vs2026" },
+  "windows-arm64": { "runner": "windows-11-vs2026-arm" }
+}

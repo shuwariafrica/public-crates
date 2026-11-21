@@ -1,0 +1,13 @@
+# The organisation's convention: every dot-named path and every Markdown file is local, and what
+# the repository ships is named back.
+.*
+*.md
+!.github/
+!.gitignore
+!.editorconfig
+!.shellcheckrc
+!README.md
+# A project's cargo configuration, as the template gives it.
+!template/.cargo/
+# The documents a project takes from the template.
+!template/*.md

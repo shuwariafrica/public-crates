@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Each update regenerates the matching entries of .github/workflows/actions.lock. mise's tools
+  # have no Dependabot ecosystem: mise.toml and mise.lock are raised by hand with `mise lock`.
+  - package-ecosystem: github-actions
+    directories: [/, /.github/actions/mise]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    labels: [dependencies, github_actions]

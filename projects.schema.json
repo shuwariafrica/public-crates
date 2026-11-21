@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/shuwariafrica/public-crates/main/projects.schema.json",
+  "title": "The organisation's public Rust projects",
+  "description": "Each project by its repository's name. The checks read it at their own commit, never from a project's tree.",
+  "type": "object",
+  "required": [
+    "projects"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "projects": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._-]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/project"
+      }
+    }
+  },
+  "$defs": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "repository_id",
+        "crates",
+        "crates_io_owners",
+        "tag_signers",
+        "signing_key",
+        "first_version",
+        "platforms",
+        "license"
+      ],
+      "properties": {
+        "repository": {
+          "description": "owner/name as GitHub names it in a run; its name is the project's key.",
+          "type": "string",
+          "pattern": "^shuwariafrica/[A-Za-z0-9._-]+$"
+        },
+        "repository_id": {
+          "description": "GitHub's id for the repository, which a pull request's run must report; null until the repository exists, when no run of the checks admits it.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "crates": {
+          "description": "The crates the project publishes, each a crates.io name.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+          }
+        },
+        "crates_io_owners": {
+          "description": "The crates' owners on crates.io, each a user's login: the organisation's administrators who hold one, as the infrastructure catalogue derives them.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+          }
+        },
+        "tag_signers": {
+          "description": "The OpenPGP primaries whose signature on a tag admits its release, as v4 fingerprints.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9A-F]{40}$"
+          }
+        },
+        "signing_key": {
+          "description": "The primary fingerprint of the project's own signing key, a v4 fingerprint, which the release signs with and signing-keys/<repository>.asc holds; null until the key is made, when no release is signed.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9A-F]{40}$"
+        },
+        "first_version": {
+          "description": "The first version the release takes; no tag below it is released.",
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "platforms": {
+          "description": "The platforms the checks run on, each a key of platforms.json; Linux on x64 always.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "linux-x64",
+              "linux-arm64",
+              "windows-x64",
+              "windows-arm64"
+            ]
+          },
+          "contains": {
+            "const": "linux-x64"
+          }
+        },
+        "license": {
+          "description": "The project's own licence, which every crate's manifest names and LICENSE holds.",
+          "enum": [
+            "Apache-2.0",
+            "MPL-2.0"
+          ]
+        },
+        "git_sources": {
+          "description": "The git sources Cargo.lock may take a package from, each by repository and branch, until the crate version it awaits is on crates.io; none when absent.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repository",
+              "branch",
+              "awaits"
+            ],
+            "properties": {
+              "repository": {
+                "type": "string",
+                "pattern": "^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+$"
+              },
+              "branch": {
+                "description": "The branch whose first-parent line the lock's revision of this source must be on.",
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._][A-Za-z0-9._/-]{0,254}$"
+              },
+              "awaits": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "crate",
+                  "version"
+                ],
+                "properties": {
+                  "crate": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+                  },
+                  "version": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
