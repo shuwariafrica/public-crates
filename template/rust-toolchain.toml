@@ -1,4 +1,5 @@
-# The release the project is verified on, which the manifest's rust-version states too.
+# The release the project is tested and linted on. A crate's rust-version is this release, or a
+# lower one the checks also build it on.
 [toolchain]
 channel = "1.100.0"
 components = ["rustfmt", "clippy"]

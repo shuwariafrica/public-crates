@@ -2,7 +2,8 @@
 # `[lints] workspace = true`.
 [workspace.package]
 edition = "2024"
-# The toolchain rust-toolchain.toml names; raised with it.
+# The release rust-toolchain.toml names, raised with it; or a lower one the crates build on, which
+# the checks build them on and a raise leaves as it is.
 rust-version = "1.100.0"
 # Apache-2.0, or MPL-2.0 where interoperability with the GPL family is foreseen, chosen per
 # project; LICENSE at the root holds that licence's text, and the checks hold the two together.

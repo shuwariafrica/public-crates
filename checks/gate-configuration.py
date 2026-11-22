@@ -6,9 +6,11 @@ name its tool reads it by, and a manifest counts where one of the named tables, 
 `rust-version`, changes. A tree that holds them passes; only a change to one fails.
 
 One change passes as data, the routine toolchain raise: the root rust-toolchain.toml changes its
-`channel` alone, from one exact stable release to a later one, and every publishable crate's
-`rust-version`, and the workspace's, names that later release afterwards. A `rust-version` change
-passes only as part of it.
+`channel` alone, from one exact stable release to a later one, every publishable crate's
+`rust-version`, and the workspace's, that named the earlier release names the later one afterwards,
+and each one below the earlier release is unchanged. A lower `rust-version` is the project's own
+floor, reviewed like the rest of what the checks check, so the raise carries it along unchanged. A
+`rust-version` change passes only as part of the raise.
 
     gate-configuration.py <base> <head>
 
@@ -64,8 +66,9 @@ def release(version: object) -> tuple[int, ...] | None:
     return tuple(parts + [0] * (3 - len(parts)))
 
 
-def raised_to(base: str, head: str) -> tuple[int, ...] | None:
-    """The release the root toolchain file is raised to, where its change is a routine raise."""
+def raised(base: str, head: str) -> tuple[tuple[int, ...], tuple[int, ...]] | None:
+    """The releases the root toolchain file is raised from and to, where its change is a routine
+    raise."""
     before, after = toml_at(base, TOOLCHAIN), toml_at(head, TOOLCHAIN)
     if not isinstance(before, dict) or not isinstance(after, dict):
         return None
@@ -80,7 +83,16 @@ def raised_to(base: str, head: str) -> tuple[int, ...] | None:
         return None
     if release(new["channel"]) <= release(old["channel"]):
         return None
-    return release(new["channel"])
+    return release(old["channel"]), release(new["channel"])
+
+
+def carried(before: list[object], after: list[object], raise_: tuple[tuple[int, ...], tuple[int, ...]]) -> bool:
+    """Whether a manifest's rust-versions change as the raise moves them: each that named the
+    earlier release names the later one, and every other is unchanged."""
+    old, new = raise_
+    return len(before) == len(after) and all(
+        a == b or (release(b) == old and release(a) == new) for b, a in zip(before, after)
+    )
 
 
 def rust_versions(document: object) -> list[object]:
@@ -104,7 +116,7 @@ def changed(base: str, head: str) -> list[str]:
         sys.stderr.write(diff.stderr.decode("utf-8", "replace"))
         raise SystemExit(2)
     paths = [raw.decode("utf-8", "surrogateescape") for raw in diff.stdout.split(b"\0") if raw]
-    raise_ = raised_to(base, head) if TOOLCHAIN in paths else None
+    raise_ = raised(base, head) if TOOLCHAIN in paths else None
 
     found = []
     for path in paths:
@@ -117,19 +129,19 @@ def changed(base: str, head: str) -> list[str]:
             if UNREADABLE in (before, after) or [table(before, *keys) for keys in TABLES] != [table(after, *keys) for keys in TABLES]:
                 found.append(f"{path}: its {' or '.join('[' + '.'.join(keys) + ']' for keys in TABLES)}")
             # A manifest added or removed takes its rust-version with it, which rust-version.py
-            # holds to the toolchain.
+            # holds to at most the toolchain's release and floor.sh builds on.
             elif None not in (before, after) and rust_versions(before) != rust_versions(after) and (
-                raise_ is None or any(release(v) != raise_ for v in rust_versions(after) if v is not None)
+                raise_ is None or not carried(rust_versions(before), rust_versions(after), raise_)
             ):
                 found.append(f"{path}: its rust-version, outside a routine toolchain raise")
 
-    # A raise leaves no publishable crate, and not the workspace, behind the release it names.
+    # A raise leaves no publishable crate, and not the workspace, on the release it raises from.
     if raise_ is not None:
         listing = git("ls-tree", "-r", "-z", "--name-only", head)
         for raw in listing.stdout.split(b"\0"):
             path = raw.decode("utf-8", "surrogateescape")
             if MANIFEST.search(path):
-                behind = [v for v in rust_versions(toml_at(head, path)) if v is not None and release(v) != raise_]
+                behind = [v for v in rust_versions(toml_at(head, path)) if release(v) == raise_[0]]
                 if behind:
                     found.append(f"{path}: its rust-version {behind[0]} is left behind the raised toolchain")
     return found

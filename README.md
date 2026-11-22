@@ -28,13 +28,17 @@ crates.io alone; the run's summary names each awaited crate and version.
 
 Before them, each platform's job holds the project to its licence: every crate's manifest names
 one `license`, `Apache-2.0` or `MPL-2.0`, and `LICENSE` at the workspace root is that licence's text.
+It also builds each publishable crate whose `rust-version` is below the toolchain's release on the
+release it states, its lowest: the library with default features, with all features and, where the
+crate declares defaults, with none, resolved afresh in a copy of the workspace without its
+`Cargo.lock`. A crate that states no lower release states the toolchain's.
 
 Two more things read the tree itself:
 
 - Each Linux job fails a tree whose toolchain is anything but one exact release in
   `rust-toolchain.toml` alone (a `rust-toolchain` file anywhere, a `path` key, a channel such as
-  `stable`), one in which any publishable crate's `rust-version`, or the workspace's, is not that
-  release, and one whose `Cargo.lock` takes a package from a git source that the project's
+  `stable`), one in which a publishable crate states no `rust-version`, or it or the workspace's is
+  above that release, and one whose `Cargo.lock` takes a package from a git source that the project's
   `git_sources` in `projects.json` does not list, or at a revision off the listed branch.
 - `gate-configuration.yml` fails a pull request that changes what the checks check, and lists the
   files: `.cargo/config.toml` or `.cargo/config`, `deny.toml`, `clippy.toml` or `.clippy.toml`,
@@ -42,8 +46,9 @@ Two more things read the tree itself:
   file under `.github/` (a workflow added there would run with the project's token), and any
   manifest's `[lints]`, `[workspace.lints]` or `rust-version`. A tree may hold any of them; a
   change to one lands only by an organisation owner's merge through this workflow's bypass. A routine toolchain raise passes:
-  `rust-toolchain.toml`'s `channel` alone moves from one exact stable release to a later one, and
-  every publishable crate's `rust-version`, and the workspace's, moves with it. Its file list is
+  `rust-toolchain.toml`'s `channel` alone moves from one exact stable release to a later one, each
+  publishable crate's `rust-version`, and the workspace's, that named the earlier release moves with
+  it, and each one below it stays as it is. Its file list is
   `checks/gate-configuration.json`.
 
 A git source is admitted per project, with the release that retires it: `projects.json`'s
@@ -113,8 +118,8 @@ in the checks.
    catalogue lists them, and its `signing_key` null until the project's key is made, which every
    release step refuses.
 
-When Dependabot raises the toolchain, `rust-version` moves with it on the same branch, or the pull
-request fails.
+When Dependabot raises the toolchain, each `rust-version` that names the earlier release moves with
+it on the same branch, or the pull request fails; a lower one stays as it is.
 
 ## Changing this repository
 

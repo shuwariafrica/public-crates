@@ -37,10 +37,17 @@ Before those, the checks refuse a tree:
 
 - whose toolchain is anything but one exact release, in `rust-toolchain.toml` alone: no
   `rust-toolchain` file, no `path`, no channel such as `stable`;
-- in which any publishable crate's `rust-version`, or the workspace's, is not that release;
+- in which a publishable crate states no `rust-version`, or it or the workspace's is above that
+  release;
 - whose crates are not all under the one licence `LICENSE` holds;
 - whose `Cargo.lock` takes a package from a git source public-crates' `projects.json` does not list
   for this project, or at a revision off the first-parent line of the branch it names.
+
+A crate's `rust-version` below that release is the lowest it builds on, and on every platform the
+checks build its library there with default features, with all features and, where it declares
+defaults, with none: `cargo +<rust-version> build --lib -p <crate>`, then with `--all-features` and
+`--no-default-features`, in a copy of the workspace without `Cargo.lock`, so the release resolves
+its dependencies afresh.
 
 ## Changing what the checks check
 
@@ -59,7 +66,7 @@ organisation owner's deliberate merge, which covers the configuration change alo
 above must still pass.
 
 One change passes as data: raising the toolchain. `rust-toolchain.toml` changes its `channel`
-alone, from one exact stable release to a later one, and every publishable crate's
-`rust-version`, and the workspace's, moves to that release in the same pull request. Dependabot's
-toolchain pull request changes the channel only, so it fails until `rust-version` is moved on its
-branch.
+alone, from one exact stable release to a later one, each publishable crate's `rust-version`, and
+the workspace's, that named the earlier release moves to the later one in the same pull request,
+and each one below it stays as it is. Dependabot's toolchain pull request changes the channel only,
+so it fails until each `rust-version` that names the earlier release is moved on its branch.

@@ -75,13 +75,20 @@ runs:
       run: |
         rustup toolchain install --no-self-update
         rustc --version
-    - name: Every publishable crate's rust-version is that release
+    - name: Every publishable crate's rust-version is at most that release
       if: ${{ !cancelled() && steps.toolchain.outcome == 'success' && runner.os == 'Linux' }}
       shell: bash
       working-directory: ${{ inputs.project }}
       env:
         GATE: ${{ steps.gate.outputs.root }}
       run: python3 -I "${GATE}/checks/rust-version.py" .
+    - name: Each crate whose rust-version is below the toolchain builds on that release
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ inputs.project }}
+      env:
+        GATE: ${{ steps.gate.outputs.root }}
+      run: bash "${GATE}/checks/floor.sh"
     - name: The project's own licence is Apache-2.0 or MPL-2.0, its text in LICENSE
       if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
       shell: bash
