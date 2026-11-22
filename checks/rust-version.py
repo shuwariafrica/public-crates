@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Fails a project's tree unless every publishable crate's `rust-version`, and the workspace's
-where it states one, is the release its rust-toolchain.toml names: the one release the project is
-verified on. A crate that states none is refused too.
+where it states one, is at most the release its rust-toolchain.toml names, the one the project is
+tested and linted on. A lower one is the lowest release the checks build the crate on (floor.sh).
+A crate that states none is refused too.
 
     rust-version.py <project>
 
@@ -40,8 +41,8 @@ def faults(project: str) -> list[str]:
 
     found = []
     workspace = root.get("workspace", {}).get("package", {}).get("rust-version")
-    if isinstance(workspace, str) and release(workspace) != release(channel):
-        found.append(f"[workspace.package] rust-version is {workspace}, rust-toolchain.toml {channel}")
+    if isinstance(workspace, str) and release(workspace) > release(channel):
+        found.append(f"[workspace.package] rust-version is {workspace}, above rust-toolchain.toml's {channel}")
     for package in packages["packages"]:
         publish = package.get("publish")
         if package["id"] not in members or publish == []:
@@ -49,8 +50,8 @@ def faults(project: str) -> list[str]:
         stated = package.get("rust_version")
         if stated is None:
             found.append(f"{package['name']} states no rust-version; rust-toolchain.toml names {channel}")
-        elif release(stated) != release(channel):
-            found.append(f"{package['name']}'s rust-version is {stated}, rust-toolchain.toml {channel}")
+        elif release(stated) > release(channel):
+            found.append(f"{package['name']}'s rust-version is {stated}, above rust-toolchain.toml's {channel}")
     return found
 
 
@@ -60,7 +61,7 @@ def main() -> int:
         return 2
     found = faults(sys.argv[1])
     if not found:
-        print("rust-version: every publishable crate names the toolchain's release")
+        print("rust-version: every publishable crate's rust-version is at most the toolchain's release")
         return 0
     text = "".join(f"rust-version: {fault}\n" for fault in found)
     sys.stdout.write(text)

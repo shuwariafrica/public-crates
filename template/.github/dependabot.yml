@@ -1,7 +1,7 @@
 version: 2
 updates:
-  # A new release of Rust is raised when it appears; rust-version in Cargo.toml moves with it in
-  # the same pull request, by hand.
+  # A new release of Rust is raised when it appears; a rust-version in Cargo.toml that names the
+  # earlier release moves with it in the same pull request, by hand, and a lower one stays.
   - package-ecosystem: rust-toolchain
     directory: /
     schedule:

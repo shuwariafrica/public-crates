@@ -3,8 +3,8 @@
 # python3 3.11 or later; given `windows`, also Git Bash on windows-2025-vs2026 with git, jq and
 # cargo, where it runs the cases of the scripts a Windows job runs, and those alone. The cases of
 # plan.sh, project.sh, gate-configuration.py, toolchain-file.py, rust-version.py, git-sources.py,
-# own-licence.sh, package.sh, packaged.sh and semver-checks.sh, each over a fixture built in a
-# temporary directory, which it removes. Prints one line per case and exits 1 when any fails.
+# own-licence.sh, package.sh, packaged.sh, floor.sh and semver-checks.sh, each over a fixture built
+# in a temporary directory, which it removes. Prints one line per case and exits 1 when any fails.
 #   checks/test.sh [windows]
 set -euo pipefail
 shopt -s inherit_errexit
@@ -61,10 +61,12 @@ gate_configuration_case() {
 }
 
 gate_configuration_cases() {
-  mkdir -p "${WORK}/base/crates/a/.cargo" "${WORK}/base/crates/b"
-  printf '[workspace]\nmembers = ["crates/a", "crates/b"]\n\n[workspace.package]\nrust-version = "1.100.0"\n\n[workspace.lints.clippy]\nall = "deny"\n' >"${WORK}/base/Cargo.toml"
+  mkdir -p "${WORK}/base/crates/a/.cargo" "${WORK}/base/crates/b" "${WORK}/base/crates/d"
+  # The root's package and d state floors below the toolchain's release.
+  printf '[package]\nname = "root"\nversion = "0.1.0"\nrust-version = "1.85.0"\n\n[workspace]\nmembers = ["crates/a", "crates/b", "crates/d"]\n\n[workspace.package]\nrust-version = "1.100.0"\n\n[workspace.lints.clippy]\nall = "deny"\n' >"${WORK}/base/Cargo.toml"
   printf '[package]\nname = "a"\nversion = "0.1.0"\nrust-version.workspace = true\n\n[lints]\nworkspace = true\n' >"${WORK}/base/crates/a/Cargo.toml"
   printf '[package]\nname = "b"\nversion = "0.1.0"\nrust-version = "1.100.0"\n' >"${WORK}/base/crates/b/Cargo.toml"
+  printf '[package]\nname = "d"\nversion = "0.1.0"\nrust-version = "1.90"\n' >"${WORK}/base/crates/d/Cargo.toml"
   printf '[toolchain]\nchannel = "1.100.0"\ncomponents = ["rustfmt", "clippy"]\n' >"${WORK}/base/rust-toolchain.toml"
   printf 'pub fn a() {}\n' >"${WORK}/base/crates/a/lib.rs"
   printf '[bans]\nwildcards = "deny"\n' >"${WORK}/base/deny.toml"
@@ -97,7 +99,12 @@ gate_configuration_cases() {
 # each over the base above.
 toolchain_raise_cases() {
   local raise="sed -i 's/1.100.0/1.101.0/' rust-toolchain.toml Cargo.toml crates/b/Cargo.toml"
-  gate_configuration_case "a routine raise passes" 0 "leaves what the checks check" "${raise}"
+  gate_configuration_case "a routine raise moving the crates on the old release, each floor below it left, passes" 0 \
+    "leaves what the checks check" "${raise}"
+  gate_configuration_case "a raise that moves a crate's floor fails" 1 "- crates/d/Cargo.toml: its rust-version, outside a routine toolchain raise" \
+    "${raise} && sed -i 's/1.90/1.91/' crates/d/Cargo.toml"
+  gate_configuration_case "a raise that moves the root package's floor beside the workspace's fails" 1 "- Cargo.toml: its rust-version, outside a routine toolchain raise" \
+    "${raise} && sed -i 's/1.85.0/1.101.0/' Cargo.toml"
   gate_configuration_case "a raise to a lower release fails" 1 "- rust-toolchain.toml" "sed -i 's/1.100.0/1.99.1/' rust-toolchain.toml Cargo.toml crates/b/Cargo.toml"
   gate_configuration_case "an equal release fails" 1 "- rust-toolchain.toml" "printf '# the same release\n' >>rust-toolchain.toml"
   local channel
@@ -114,6 +121,7 @@ toolchain_raise_cases() {
   gate_configuration_case "a raise with the workspace left behind fails" 1 "- Cargo.toml: its rust-version 1.100.0 is left behind" "sed -i 's/1.100.0/1.101.0/' rust-toolchain.toml crates/b/Cargo.toml"
   gate_configuration_case "a new crate on the toolchain's release passes" 0 "leaves what the checks check" "mkdir -p crates/c && printf '[package]\nname = \"c\"\nversion = \"0.1.0\"\nrust-version = \"1.100.0\"\n' >crates/c/Cargo.toml"
   gate_configuration_case "a rust-version change alone fails" 1 "- crates/b/Cargo.toml: its rust-version, outside a routine toolchain raise" "sed -i 's/1.100.0/1.101.0/' crates/b/Cargo.toml"
+  gate_configuration_case "a floor changed outside a raise fails" 1 "- crates/d/Cargo.toml: its rust-version, outside a routine toolchain raise" "sed -i 's/1.90/1.89/' crates/d/Cargo.toml"
 }
 
 toolchain_case() {
@@ -260,6 +268,199 @@ packaged_cases() {
   packaged_case "a directory with no order is a bad invocation" 2 "usage: packaged.sh" ""
 }
 
+# floor_case <name> <status> <text> <packages> [<failing build> [<active toolchain> [windows]]]:
+# floor.sh in a project on 1.100.0, with its own Cargo.lock and target directory, whose cargo
+# metadata lists <packages> (each a member unless it says `"member": false`, and a library unless it
+# names its targets; "-" for a manifest cargo cannot read), over rustup and cargo stubs recording what they are asked and jq as a Windows
+# job runs it. cargo writes a lock where it builds, as cargo does, and fails the build whose
+# arguments are <failing build>. Given `windows`, RUNNER_TEMP is D:\a\_temp, as a Windows runner
+# names it, and a cygpath stub recording its call converts it to the case's own directory.
+floor_case() {
+  local name=$1 want=$2 text=$3 packages=$4 failing=${5:-} active=${6:-1.100.0-x86_64-unknown-linux-gnu} windows=${7:-}
+  local dir native tool temp found
+  local -a tools=(rustup cargo)
+  dir=$(mktemp -d -p "${WORK}")
+  mkdir -p "${dir}/bin" "${dir}/project/target" "${dir}/temp"
+  native=$(native_path "${dir}/native")
+  printf '[workspace]\n' >"${dir}/project/Cargo.toml"
+  printf 'the project'"'"'s own lock\n' >"${dir}/project/Cargo.lock"
+  : >"${dir}/project/target/built"
+  [[ "${packages}" == - ]] || jq -n --argjson packages "${packages}" \
+    '{workspace_members: [$packages[] | select(.member != false) | .id],
+      packages: [$packages[] | del(.member) | if has("targets") then . else .targets = [{name: .name, kind: ["lib"]}] end]}' \
+    >"${dir}/metadata.json"
+  cat >"${dir}/bin/rustup" <<'STUB'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "show active-toolchain") printf '%s (overridden by %s/rust-toolchain.toml)\n' "${ACTIVE:?}" "${PWD}" ;;
+  "toolchain install") printf 'rustup %s\n' "$*" >>"${RECORD:?}" ;;
+  *) exit 2 ;;
+esac
+STUB
+  cat >"${dir}/bin/cargo" <<'STUB'
+#!/usr/bin/env bash
+case "$1" in
+  metadata) cat -- "${METADATA:?}" ;;
+  +*)
+    lock=absent target=absent
+    [[ ! -e Cargo.lock ]] || lock=present
+    [[ ! -e target ]] || target=present
+    printf 'cargo %s|%s|%s|lock %s|target %s\n' "$*" "${PWD}" "${CARGO_TARGET_DIR:-}" "${lock}" "${target}" >>"${RECORD:?}"
+    printf 'resolved by %s\n' "$1" >Cargo.lock
+    [[ "$*" != "${FAILING}" ]]
+    ;;
+  *) exit 2 ;;
+esac
+STUB
+  chmod +x "${dir}/bin/rustup" "${dir}/bin/cargo"
+  temp=${dir}/temp
+  if [[ "${windows}" == windows ]]; then
+    temp='D:\a\_temp'
+    tools+=(cygpath)
+    cat >"${dir}/bin/cygpath" <<'STUB'
+#!/usr/bin/env bash
+printf 'cygpath %s\n' "$*" >>"${RECORD:?}"
+[[ "$1" == -u ]] || exit 1
+if [[ "$2" == 'D:\a\_temp' ]]; then
+  printf '%s\n' "${CONVERTED:?}"
+else
+  printf '%s\n' "$2"
+fi
+STUB
+    chmod +x "${dir}/bin/cygpath"
+  fi
+  for tool in "${tools[@]}"; do
+    found=$(PATH="${dir}/bin:${native}" type -P "${tool}")
+    [[ "${found}" == "${dir}/bin/${tool}" ]]
+  done
+  : >"${dir}/record"
+  expect "floor: ${name}" "${want}" "${text}" \
+    run_in "${dir}/project" env PATH="${dir}/bin:${native}" RECORD="${dir}/record" METADATA="${dir}/metadata.json" \
+    ACTIVE="${active}" FAILING="${failing}" RUNNER_TEMP="${temp}" CONVERTED="${dir}/temp" bash "${GATE}/checks/floor.sh"
+  FLOOR_RECORD=$(<"${dir}/record")
+  FLOOR_DIR=${dir}
+  FLOOR_PATH=${dir}/bin:${native}
+}
+
+# equal <want> <got>: fails, printing <got>, unless the two are equal.
+equal() {
+  [[ "$1" == "$2" ]] || {
+    printf 'got:\n%s\n' "$2"
+    return 1
+  }
+}
+
+# builds_hold <text>: fails, printing the line, unless every build floor_case recorded holds <text>.
+builds_hold() {
+  local line
+  while IFS= read -r line; do
+    [[ "${line}" != cargo* || "${line}" == *"$1"* ]] || {
+      printf '%s\n' "${line}"
+      return 1
+    }
+  done <<<"${FLOOR_RECORD}"
+}
+
+floor_cases() {
+  local one want got copy lock left count features flags name
+  floor_case "no crate below the toolchain's release passes, saying so" 0 \
+    "floor: no publishable crate's rust-version is below 1.100.0, the toolchain's release; nothing to build" \
+    '[{"id": "a", "name": "a", "rust_version": "1.100.0", "features": {"default": ["std"], "std": []}, "publish": null},
+      {"id": "b", "name": "b", "rust_version": "1.100", "features": {}, "publish": null}]'
+  expect "floor: no crate below the toolchain's release installs and builds nothing" 0 "" equal "" "${FLOOR_RECORD}"
+
+  # a and b at one floor, written two ways; c on the toolchain's release, d unpublished, e stating
+  # none, f above the release and g outside the workspace, none of them built.
+  one='[{"id": "a", "name": "a", "rust_version": "1.85.0", "features": {"default": ["std"], "std": []}, "publish": null},
+    {"id": "b", "name": "b", "rust_version": "1.85", "features": {"default": []}, "publish": ["crates-io"]},
+    {"id": "c", "name": "c", "rust_version": "1.100.0", "features": {"default": ["std"], "std": []}, "publish": null},
+    {"id": "d", "name": "d", "rust_version": "1.80.0", "features": {"default": ["std"], "std": []}, "publish": []},
+    {"id": "e", "name": "e", "rust_version": null, "features": {}, "publish": null},
+    {"id": "f", "name": "f", "rust_version": "1.101.0", "features": {}, "publish": null},
+    {"id": "g", "name": "g", "rust_version": "1.70.0", "features": {}, "publish": null, "member": false}]'
+  floor_case "a floor's crates build on it" 0 "+ cargo +1.85.0 build --lib -p a: default, all and no default features" "${one}"
+  want='rustup toolchain install 1.85.0 --profile minimal --no-self-update
+cargo +1.85.0 build --lib -p a|lock absent
+cargo +1.85.0 build --lib -p a --all-features|lock present
+cargo +1.85.0 build --lib -p a --no-default-features|lock present
+cargo +1.85.0 build --lib -p b|lock present
+cargo +1.85.0 build --lib -p b --all-features|lock present'
+  got=$(cut -d '|' -f 1,4 <<<"${FLOOR_RECORD}")
+  expect "floor: the floor is installed once, each crate on it built with default and all features, with none where it declares defaults, the first build with no lock" 0 "" \
+    equal "${want}" "${got}"
+  copy=$(awk -F '|' '/^cargo /{print $2; exit}' <<<"${FLOOR_RECORD}")
+  expect "floor: the builds run in a copy under RUNNER_TEMP" 0 "${FLOOR_DIR}/temp/" printf '%s\n' "${copy}"
+  expect "floor: every build runs in that copy, with its own target directory" 0 "" builds_hold "|${copy}|${copy%/project}/target|"
+  expect "floor: the copy leaves out the project's target directory" 0 "" builds_hold "|target absent"
+  lock=$(<"${FLOOR_DIR}/project/Cargo.lock")
+  expect "floor: the project's own lock is left as it was" 0 "" equal "the project's own lock" "${lock}"
+  left=$(find "${FLOOR_DIR}/temp" -mindepth 1)
+  expect "floor: the copy is removed" 0 "" equal "" "${left}"
+
+  # Listed out of order, so a floor's crates are built together.
+  floor_case "each floor's crates build on it" 0 "+ cargo +1.90.0 build --lib -p b: default and all features; it declares no defaults" \
+    '[{"id": "a", "name": "a", "rust_version": "1.85.0", "features": {}, "publish": null},
+      {"id": "b", "name": "b", "rust_version": "1.90.0", "features": {}, "publish": null},
+      {"id": "c", "name": "c", "rust_version": "1.85.0", "features": {}, "publish": null}]'
+  want='rustup toolchain install 1.85.0 --profile minimal --no-self-update
+cargo +1.85.0 build --lib -p a|lock absent
+cargo +1.85.0 build --lib -p a --all-features|lock present
+cargo +1.85.0 build --lib -p c|lock present
+cargo +1.85.0 build --lib -p c --all-features|lock present
+rustup toolchain install 1.90.0 --profile minimal --no-self-update
+cargo +1.90.0 build --lib -p b|lock absent
+cargo +1.90.0 build --lib -p b --all-features|lock present'
+  got=$(cut -d '|' -f 1,4 <<<"${FLOOR_RECORD}")
+  expect "floor: each floor is installed once and resolves afresh, its crates built together" 0 "" equal "${want}" "${got}"
+
+  # b has a program alone; each other crate a library of one kind.
+  floor_case "a crate below the toolchain's release with no library target fails unbuilt" 1 \
+    "floor: b states rust-version 1.85.0 and has no library target; a floor below the toolchain's release is built for a library alone, so b states 1.100.0" \
+    '[{"id": "b", "name": "b", "rust_version": "1.85.0", "features": {}, "publish": null, "targets": [{"name": "b", "kind": ["bin"]}]},
+      {"id": "l", "name": "l", "rust_version": "1.85.0", "features": {}, "publish": null,
+        "targets": [{"name": "l", "kind": ["lib"]}, {"name": "e", "kind": ["example"]}, {"name": "build-script-build", "kind": ["custom-build"]}]},
+      {"id": "r", "name": "r", "rust_version": "1.85.0", "features": {}, "publish": null, "targets": [{"name": "r", "kind": ["rlib"]}]},
+      {"id": "d", "name": "d", "rust_version": "1.85.0", "features": {}, "publish": null, "targets": [{"name": "d", "kind": ["dylib"]}]},
+      {"id": "c", "name": "c", "rust_version": "1.85.0", "features": {}, "publish": null, "targets": [{"name": "c", "kind": ["cdylib"]}]},
+      {"id": "s", "name": "s", "rust_version": "1.85.0", "features": {}, "publish": null, "targets": [{"name": "s", "kind": ["staticlib"]}]},
+      {"id": "p", "name": "p", "rust_version": "1.85.0", "features": {}, "publish": null, "targets": [{"name": "p", "kind": ["proc-macro"]}]}]'
+  expect "floor: a crate with no library target is not built" 1 "" grep -q -- '-p b' <<<"${FLOOR_RECORD}"
+  for name in c:cdylib d:dylib l:lib p:proc-macro r:rlib s:staticlib; do
+    expect "floor: a crate whose library is a ${name#*:} builds beside it" 0 "" grep -q -- "build --lib -p ${name%%:*}|" <<<"${FLOOR_RECORD}"
+  done
+  floor_case "a crate with no library target fails though nothing else builds" 1 "floor: b states rust-version 1.85.0 and has no library target" \
+    '[{"id": "b", "name": "b", "rust_version": "1.85.0", "features": {}, "publish": null, "targets": [{"name": "b", "kind": ["bin"]}]}]'
+  expect "floor: nothing is installed or built for a program alone" 0 "" equal "" "${FLOOR_RECORD}"
+
+  floor_case "a Windows runner's RUNNER_TEMP is converted to a POSIX path" 0 "+ cargo +1.85.0 build --lib -p a" "${one}" "" "" windows
+  expect "floor: the Windows form goes to cygpath -u" 0 'cygpath -u D:\a\_temp' printf '%s\n' "${FLOOR_RECORD}"
+  copy=$(awk -F '|' '/^cargo /{print $2; exit}' <<<"${FLOOR_RECORD}")
+  expect "floor: the copy lands under the converted directory" 0 "${FLOOR_DIR}/temp/" printf '%s\n' "${copy}"
+  left=$(find "${FLOOR_DIR}/temp" -mindepth 1)
+  expect "floor: the copy under the converted directory is removed" 0 "" equal "" "${left}"
+
+  for features in default all none; do
+    case ${features} in
+      default) flags="" ;;
+      all) flags=" --all-features" ;;
+      none) flags=" --no-default-features" ;;
+      *) return 1 ;;
+    esac
+    floor_case "a build that fails with features: ${features} exits 1, naming the crate, the floor and the features" 1 \
+      "floor: a does not build on 1.85.0 with features: ${features}" "${one}" "+1.85.0 build --lib -p a${flags}"
+    count=$(grep -c . <<<"${FLOOR_RECORD}")
+    expect "floor: a build that fails with features: ${features} stops none of the others" 0 "" equal 6 "${count}"
+  done
+  floor_case "a toolchain that is not one release is a bad invocation" 2 \
+    "floor: the toolchain stable-x86_64-unknown-linux-gnu is not one exact release" "${one}" "" stable-x86_64-unknown-linux-gnu
+  floor_case "a manifest cargo cannot read is a bad invocation" 2 "" -
+  # On the stubs alone, given nothing to answer with, so a run past the usage check fails.
+  expect "floor: an argument is a bad invocation" 2 "usage: floor.sh" \
+    run_in "${FLOOR_DIR}/project" env PATH="${FLOOR_PATH}" bash "${GATE}/checks/floor.sh" all
+  expect "floor: a directory with no Cargo.toml is a bad invocation" 2 "usage: floor.sh" \
+    run_in "${FLOOR_DIR}" env PATH="${FLOOR_PATH}" bash "${GATE}/checks/floor.sh"
+}
+
 # licence_case <name> <status> <text> <workspace licence> <member licence> <LICENSE line> [<named>]:
 # a two-crate workspace under those licences, its LICENSE holding that line, or none for "-",
 # checked against the licence projects.json names where one is given.
@@ -312,12 +513,14 @@ version_case() {
 }
 
 version_cases() {
-  version_case "every crate on the toolchain's release passes" 0 "names the toolchain's release" 1.100.0 1.100.0 -
-  version_case "a release written without its patch passes" 0 "names the toolchain's release" 1.100 1.100 -
-  version_case "a crate behind the toolchain fails" 1 "a's rust-version is 1.99.1, rust-toolchain.toml 1.100.0" 1.100.0 1.99.1 -
-  version_case "a workspace behind the toolchain fails" 1 "[workspace.package] rust-version is 1.99.0" 1.99.0 1.100.0 -
+  version_case "every crate on the toolchain's release passes" 0 "is at most the toolchain's release" 1.100.0 1.100.0 -
+  version_case "a release written without its patch passes" 0 "is at most the toolchain's release" 1.100 1.100 -
+  version_case "a crate below the toolchain passes" 0 "is at most the toolchain's release" 1.100.0 1.85 -
+  version_case "a workspace below the toolchain passes" 0 "is at most the toolchain's release" 1.85.0 1.100.0 -
+  version_case "a crate above the toolchain fails" 1 "a's rust-version is 1.100.1, above rust-toolchain.toml's 1.100.0" 1.100.0 1.100.1 -
+  version_case "a workspace above the toolchain fails" 1 "[workspace.package] rust-version is 1.101, above rust-toolchain.toml's 1.100.0" 1.101 1.100.0 -
   version_case "a crate stating none fails" 1 "a states no rust-version" 1.100.0 - -
-  version_case "an unpublished crate behind it passes" 0 "names the toolchain's release" 1.100.0 1.99.1 "publish = false"
+  version_case "an unpublished crate above it passes" 0 "is at most the toolchain's release" 1.100.0 1.101.0 "publish = false"
 }
 
 # The upstream every git_source_case reads, as git reads github.com: master holds one, two and the
@@ -509,6 +712,7 @@ main() {
     licence_cases
     package_cases
     packaged_cases
+    floor_cases
     semver_cases
     native_cases
   else
@@ -521,6 +725,7 @@ main() {
     git_source_cases
     package_cases
     packaged_cases
+    floor_cases
     semver_cases
     native_cases
   fi
